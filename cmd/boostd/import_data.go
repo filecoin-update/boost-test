@@ -1,7 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"github.com/filecoin-project/boost/storagemarket/types/dealcheckpoints"
+	"golang.org/x/xerrors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +18,43 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+func downloadFile(localPath string, remotePath string) error {
+	file, err := os.Create(localPath)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_ = file.Close()
+	}()
+
+	rsp, err := http.Get(remotePath)
+	defer func() {
+		_ = rsp.Body.Close()
+	}()
+	if err != nil {
+		return err
+	}
+
+	if rsp.StatusCode != 200 {
+		return xerrors.Errorf("down file error code: %d", rsp.StatusCode)
+	}
+	_, err = io.Copy(file, rsp.Body)
+	return err
+}
+
+func pathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	//isnotexist来判断，是不是不存在的错误
+	if os.IsNotExist(err) { //如果返回的错误类型使用os.isNotExist()判断为true，说明文件或者文件夹不存在
+		return false, nil
+	}
+	return false, err //如果有错误了，但是不是不存在的错误，所以把这个错误原封不动的返回
+}
+
 var importDataCmd = &cli.Command{
 	Name:      "import-data",
 	Usage:     "Import data for offline deal made with Boost",
@@ -21,7 +63,20 @@ var importDataCmd = &cli.Command{
 		&cli.BoolFlag{
 			Name:  "delete-after-import",
 			Usage: "whether to delete the data for the offline deal after the deal has been added to a sector",
-			Value: false,
+			Value: true,
+		},
+		&cli.BoolFlag{
+			Name:  "remote",
+			Usage: "is it a remote file",
+			Value: true,
+		},
+		&cli.StringFlag{
+			Name:  "remote-path",
+			Usage: "remote file download path",
+		},
+		&cli.StringFlag{
+			Name:  "local-path",
+			Usage: "local file path",
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -30,21 +85,16 @@ var importDataCmd = &cli.Command{
 		}
 
 		id := cctx.Args().Get(0)
-		tpath := cctx.Args().Get(1)
+		fileName := cctx.Args().Get(1)
 
-		path, err := homedir.Expand(tpath)
-		if err != nil {
-			return fmt.Errorf("expanding file path: %w", err)
+		localPath := cctx.String("local-path")
+		if localPath == "" {
+			return errors.New("local-path not empty")
 		}
-
-		filePath, err := filepath.Abs(path)
-		if err != nil {
-			return fmt.Errorf("failed get absolute path for file: %w", err)
-		}
-
-		_, err = os.Stat(filePath)
-		if err != nil {
-			return fmt.Errorf("opening file %s: %w", filePath, err)
+		if strings.HasSuffix(localPath, "/") {
+			localPath = fmt.Sprintf("%s%s", localPath, fileName)
+		} else {
+			localPath = fmt.Sprintf("%s/%s", localPath, fileName)
 		}
 
 		// Parse the first parameter as a deal UUID or a proposal CID
@@ -64,9 +114,60 @@ var importDataCmd = &cli.Command{
 		}
 		defer closer()
 
+		pds, err := napi.BoostDeal(cctx.Context, dealUuid)
+		if err != nil {
+			return err
+		}
+
+		if pds.Checkpoint != dealcheckpoints.Accepted {
+			return xerrors.Errorf("the order %s has been imported", dealUuid.String())
+		}
+
+		// 远程下载文件
+		remote := cctx.Bool("remote")
+		localFileExists, _ := pathExists(localPath)
+		if !localFileExists {
+			if remote {
+				remotePath := cctx.String("remote-path")
+				if remotePath == "" {
+					return errors.New("remote-path not empty")
+				}
+				if strings.HasSuffix(remotePath, "/") {
+					remotePath = fmt.Sprintf("%s%s", remotePath, fileName)
+				} else {
+					remotePath = fmt.Sprintf("%s/%s", remotePath, fileName)
+				}
+
+				if err := downloadFile(localPath, remotePath); err != nil {
+					_ = os.RemoveAll(localPath)
+					return err
+				}
+			} else {
+				return errors.New("local file does not exist")
+			}
+		}
+
+		path, err := homedir.Expand(localPath)
+		if err != nil {
+			return fmt.Errorf("expanding file path: %w", err)
+		}
+
+		filePath, err := filepath.Abs(path)
+		if err != nil {
+			return fmt.Errorf("failed get absolute path for file: %w", err)
+		}
+
+		_, err = os.Stat(filePath)
+		if err != nil {
+			return fmt.Errorf("opening file %s: %w", filePath, err)
+		}
+
 		// If the user has supplied a signed proposal cid
 		deleteAfterImport := cctx.Bool("delete-after-import")
 		if proposalCid != nil {
+			if deleteAfterImport {
+				return fmt.Errorf("legacy deal data cannot be automatically deleted after import (only new deals)")
+			}
 
 			// Look up the deal in the boost database
 			deal, err := napi.BoostDealBySignedProposalCid(cctx.Context, *proposalCid)
@@ -75,10 +176,6 @@ var importDataCmd = &cli.Command{
 				// return the error
 				if !strings.Contains(err.Error(), "not found") {
 					return err
-				}
-
-				if deleteAfterImport {
-					return fmt.Errorf("cannot find boost deal with proposal cid %s and legacy deal data cannot be automatically deleted after import (only new deals)", proposalCid)
 				}
 
 				// The deal is not in the boost database, try the legacy

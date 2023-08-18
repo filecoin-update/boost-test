@@ -98,7 +98,8 @@ func (sa *sectorAccessor) UnsealSectorAt(ctx context.Context, sectorID abi.Secto
 	if !ok {
 		return nil, errors.New("place config env for minio endpoint")
 	}
-	url := fmt.Sprintf("%s/%s.car", minioEndpoint, piece.Piece.PieceCID.String())
+
+	url := fmt.Sprintf("%s/%s.car", minioEndpoint, piece.DealInfo.DealProposal.PieceCID.String())
 
 	c := g.Client()
 	//headerRange := fmt.Sprintf("bytes=0-%d", length)

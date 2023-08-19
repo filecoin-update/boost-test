@@ -7,6 +7,7 @@ import (
 	"github.com/gogf/gf/v2/net/gclient"
 	"io"
 	"os"
+	"sync"
 
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
@@ -34,6 +35,7 @@ type sectorAccessor struct {
 	secb  sectorblocks.SectorBuilder
 	pp    sealer.PieceProvider
 	full  v1api.FullNode
+	sync.Mutex
 }
 
 var _ retrievalmarket.SectorAccessor = (*sectorAccessor)(nil)
@@ -83,6 +85,8 @@ func (sa *sectorAccessor) UnsealSector(ctx context.Context, sectorID abi.SectorN
 //}
 
 func (sa *sectorAccessor) UnsealSectorAt(ctx context.Context, sectorID abi.SectorNumber, pieceOffset abi.UnpaddedPieceSize, length abi.UnpaddedPieceSize) (mount.Reader, error) {
+	sa.Lock()
+	defer sa.Unlock()
 	log.Debugf("get sector %d, pieceOffset %d, length %d", sectorID, pieceOffset, length)
 	si, err := sa.sectorsStatus(ctx, sectorID, false)
 	if err != nil {

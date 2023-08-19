@@ -89,6 +89,9 @@ func (sa *sectorAccessor) UnsealSectorAt(ctx context.Context, sectorID abi.Secto
 		return nil, err
 	}
 
+	if len(si.Pieces) == 0 {
+		return nil, xerrors.New("not fond piece")
+	}
 	piece := si.Pieces[0]
 	if pieceOffset > 0 && len(si.Pieces) > 1 {
 		piece = si.Pieces[1]

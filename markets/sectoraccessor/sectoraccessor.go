@@ -14,7 +14,7 @@ import (
 
 	"github.com/filecoin-project/boost-gfm/retrievalmarket"
 	"github.com/filecoin-project/dagstore/mount"
-	"github.com/filecoin-project/go-address"
+	address "github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/lotus/api"
@@ -30,12 +30,13 @@ import (
 
 var log = logging.Logger("sectoraccessor")
 
+var minioLock sync.Mutex
+
 type sectorAccessor struct {
 	maddr address.Address
 	secb  sectorblocks.SectorBuilder
 	pp    sealer.PieceProvider
 	full  v1api.FullNode
-	sync.Mutex
 }
 
 var _ retrievalmarket.SectorAccessor = (*sectorAccessor)(nil)
@@ -85,8 +86,8 @@ func (sa *sectorAccessor) UnsealSector(ctx context.Context, sectorID abi.SectorN
 //}
 
 func (sa *sectorAccessor) UnsealSectorAt(ctx context.Context, sectorID abi.SectorNumber, pieceOffset abi.UnpaddedPieceSize, length abi.UnpaddedPieceSize) (mount.Reader, error) {
-	sa.Lock()
-	defer sa.Unlock()
+	minioLock.Lock()
+	defer minioLock.Unlock()
 	log.Debugf("get sector %d, pieceOffset %d, length %d", sectorID, pieceOffset, length)
 	si, err := sa.sectorsStatus(ctx, sectorID, false)
 	if err != nil {

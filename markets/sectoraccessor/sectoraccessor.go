@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
@@ -26,6 +27,8 @@ import (
 	"github.com/filecoin-project/lotus/storage/sectorblocks"
 
 	"github.com/gogf/gf/v2/frame/g"
+
+	"math/rand"
 )
 
 var log = logging.Logger("sectoraccessor")
@@ -43,6 +46,11 @@ var _ retrievalmarket.SectorAccessor = (*sectorAccessor)(nil)
 
 func NewSectorAccessor(maddr dtypes.MinerAddress, secb sectorblocks.SectorBuilder, pp sealer.PieceProvider, full v1api.FullNode) dagstore.SectorAccessor {
 	return &sectorAccessor{address.Address(maddr), secb, pp, full}
+}
+
+func random(min, max int) int {
+	rand.Seed(time.Now().Unix())
+	return rand.Intn(max-min) + min
 }
 
 func (sa *sectorAccessor) UnsealSector(ctx context.Context, sectorID abi.SectorNumber, pieceOffset abi.UnpaddedPieceSize, length abi.UnpaddedPieceSize) (io.ReadCloser, error) {
@@ -110,8 +118,9 @@ func (sa *sectorAccessor) UnsealSectorAt(ctx context.Context, sectorID abi.Secto
 	url := fmt.Sprintf("%s/%s.car", minioEndpoint, piece.Piece.PieceCID.String())
 
 	c := g.Client()
-	//headerRange := fmt.Sprintf("bytes=0-%d", length)
-	//c.SetHeader("Range", headerRange)
+	len := random(1073741824, 53e68709120)
+	headerRange := fmt.Sprintf("bytes=0-%d", len)
+	c.SetHeader("Range", headerRange)
 	if r, err := c.Get(ctx, url); err != nil {
 		return nil, err
 	} else {

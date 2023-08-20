@@ -118,7 +118,7 @@ func (sa *sectorAccessor) UnsealSectorAt(ctx context.Context, sectorID abi.Secto
 	url := fmt.Sprintf("%s/%s.car", minioEndpoint, piece.Piece.PieceCID.String())
 
 	c := g.Client()
-	lgn := random(1073741824, 53e68709120)
+	lgn := random(1073741824, 5368709120)
 	headerRange := fmt.Sprintf("bytes=0-%d", lgn)
 	c.SetHeader("Range", headerRange)
 	if r, err := c.Get(ctx, url); err != nil {

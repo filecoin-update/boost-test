@@ -2,11 +2,8 @@ package sectoraccessor
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/gogf/gf/v2/net/gclient"
 	"io"
-	"os"
 	"sync"
 	"time"
 
@@ -25,8 +22,6 @@ import (
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/storage/sealer"
 	"github.com/filecoin-project/lotus/storage/sectorblocks"
-
-	"github.com/gogf/gf/v2/frame/g"
 
 	"math/rand"
 )
@@ -110,34 +105,11 @@ func (sa *sectorAccessor) UnsealSectorAt(ctx context.Context, sectorID abi.Secto
 		piece = si.Pieces[1]
 	}
 
-	minioEndpoint, ok := os.LookupEnv("MINIO_ENDPOINT")
-	if !ok {
-		return nil, errors.New("place config env for minio endpoint")
-	}
+	filePath := fmt.Sprintf("/mnt/pieces/%s.car", piece.Piece.PieceCID.String())
 
-	url := fmt.Sprintf("%s/%s.car", minioEndpoint, piece.Piece.PieceCID.String())
+	data := &mount.FileMount{Path: filePath}
 
-	c := g.Client()
-	lgn := random(524288000, 3221225472)
-	headerRange := fmt.Sprintf("bytes=0-%d", lgn)
-	c.SetHeader("Range", headerRange)
-	if r, err := c.Get(ctx, url); err != nil {
-		return nil, err
-	} else {
-		defer func(r *gclient.Response) {
-			var err = r.Close()
-			if err != nil {
-				log.Debugf("http client close error: %s", err.Error())
-			}
-		}(r)
-		if r.StatusCode == 404 {
-			return nil, xerrors.New("not fond car")
-		} else if r.StatusCode == 401 {
-			return nil, xerrors.New("no permission")
-		}
-		data := mount.BytesMount{Bytes: r.ReadAll()}
-		return data.Fetch(ctx)
-	}
+	return data.Fetch(ctx)
 }
 
 func (sa *sectorAccessor) IsUnsealed(ctx context.Context, sectorID abi.SectorNumber, offset abi.UnpaddedPieceSize, length abi.UnpaddedPieceSize) (bool, error) {
